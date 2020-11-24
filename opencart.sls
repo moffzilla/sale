@@ -1,4 +1,4 @@
-{% if data['id'].startswith('vnf-mme*') %}
+{% if data['id'].startswith('vnf') %}
 oc_orchestration:
   runner.state.orchestrate:
     - args:
