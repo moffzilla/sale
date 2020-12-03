@@ -1,0 +1,96 @@
+formatVersion: 1
+inputs:
+  minionCount:
+    type: integer
+    default: 1
+    minimum: 1
+    maximum: 5
+    description: Number of Salt-Minions
+  workloadType:
+    type: string
+    enum:
+      - vnf-mme
+      - vnf-cscf
+      - vnf-tas
+    description: Type of Workload
+    default: vnf-mme
+  env:
+    type: string
+    enum:
+      - AWS
+      - VSPHERE
+      - AZURE
+      - GCP
+    default: AWS
+    title: Environment
+    description: Core Environment
+resources:
+  Salt-Minion:
+    type: Cloud.Machine
+    dependsOn:
+      - Salt-Master
+    properties:
+      image: OAI-Base-Image-1804
+      flavor: OAI-R4-Small
+      count: '${input.minionCount}'
+      myproperty: test
+      remoteAccess:
+        authentication: keyPairName
+        keyPair: generic-cloud-wk
+      constraints:
+        - tag: '${"cloud:" + to_lower(input.env)}'
+      tags:
+        - key: workload
+          value: '${input.workloadType}'
+      cloudConfig: |
+        #cloud-config
+        hostname: salt-minion-0${count.index}
+        runcmd:
+          - curl -L https://bootstrap.saltstack.com -o install_salt.sh
+          - sudo sh install_salt.sh -A ${resource.Salt-Master.address}
+          - sudo echo ${input.workloadType}-${count.index} > /etc/salt/minion_id
+          - sudo service salt-minion restart
+          - sudo sleep 3m
+          - sudo usermod -aG sudo ubuntu
+          - sudo salt-call grains.setval blueprintName ${env.blueprintName}
+          - sudo salt-call grains.setval requestedBy ${env.requestedBy}
+          - sudo salt-call grains.setval projectName ${env.projectName}
+          - sudo salt-call grains.setval workloadType ${input.workloadType}
+      networks:
+        - network: '${resource.Cloud_Network_1.id}'
+  Salt-Master:
+    type: Cloud.Machine
+    properties:
+      image: OAI-Base-Image-1804
+      flavor: OAI-R4-Medium
+      remoteAccess:
+        authentication: keyPairName
+        keyPair: generic-cloud-wk
+      constraints:
+        - tag: '${"cloud:" + to_lower(input.env)}'
+      tags:
+        - key: workload
+          value: saltstack
+      cloudConfig: |
+        #cloud-config
+        hostname: 'gru'
+        runcmd:
+          - curl -L https://bootstrap.saltstack.com -o install_salt.sh
+          - sudo sh install_salt.sh -M
+          - sudo usermod -aG sudo ubuntu
+          - sudo git clone https://github.com/moffzilla/sale.git /root/sale
+          - sudo mkdir /srv/salt
+          - sudo mkdir /srv/salt/reactors
+          - sudo cp /root/sale/accept-key.sls /srv/salt/reactors/accept-key.sls
+          - sudo cp /root/sale/opencart.sls /srv/salt/reactors/opencart.sls
+          - sudo cp /root/sale/reactor.conf /etc/salt/master.d/reactor.conf
+          - sudo tar xvf /root/sale/opencart_salt.tar -C /srv/salt/
+          - sudo systemctl restart salt-master
+      networks:
+        - network: '${resource.Cloud_Network_1.id}'
+  Cloud_Network_1:
+    type: Cloud.Network
+    properties:
+      constraints:
+        - tag: 'cloud:aws'
+      networkType: existing
